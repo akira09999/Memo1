@@ -1,11 +1,18 @@
 import { api } from '../../lib/api'
 import { useEditorStore } from '../../store/editorStore'
+import { useSettingsStore } from '../../store/settingsStore'
 import { useI18n } from '../../hooks/useI18n'
 import Editor from '../editor/Editor'
 
 export default function EditorPane() {
   const { selectedNote, isDirty } = useEditorStore()
   const { t } = useI18n()
+  const { fontSize, updateSetting } = useSettingsStore()
+
+  const changeFontSize = (delta: number) => {
+    const next = Math.min(24, Math.max(10, fontSize + delta))
+    updateSetting('fontSize', next)
+  }
 
   const exportMarkdown = async () => {
     if (!selectedNote) return
@@ -31,6 +38,25 @@ export default function EditorPane() {
           {selectedNote.title}
         </span>
         {isDirty && <span className="text-xs text-gray-400">{t('editor.saving')}</span>}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => changeFontSize(-1)}
+            disabled={fontSize <= 10}
+            className="rounded px-1.5 py-1 text-xs text-gray-400 hover:bg-gray-100 disabled:opacity-30 dark:hover:bg-gray-700"
+            title="글자 크기 줄이기"
+          >
+            A-
+          </button>
+          <span className="w-7 text-center text-xs text-gray-400">{fontSize}</span>
+          <button
+            onClick={() => changeFontSize(1)}
+            disabled={fontSize >= 24}
+            className="rounded px-1.5 py-1 text-xs text-gray-400 hover:bg-gray-100 disabled:opacity-30 dark:hover:bg-gray-700"
+            title="글자 크기 키우기"
+          >
+            A+
+          </button>
+        </div>
         <button
           onClick={exportMarkdown}
           className="rounded px-2 py-1 text-xs text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"

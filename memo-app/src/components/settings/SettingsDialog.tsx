@@ -207,9 +207,6 @@ function EditorOptions({ settings, update }: { settings: Settings; update: Updat
   return (
     <>
       <SectionTitle>{t('settings.section.editing')}</SectionTitle>
-      <OptionRow label={t('settings.fontSize')} description={t('settings.fontSizeDescription')}>
-        <NumberInput value={settings.fontSize} min={10} max={24} step={1} unit="px" onChange={(value) => update('fontSize', value)} />
-      </OptionRow>
       <OptionRow label={t('settings.autosaveDelay')} description={t('settings.autosaveDelayDescription')}>
         <NumberInput value={settings.autosaveDelay} min={100} max={5000} step={100} unit="ms" onChange={(value) => update('autosaveDelay', value)} />
       </OptionRow>
