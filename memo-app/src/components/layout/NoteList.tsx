@@ -1,41 +1,15 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState, useCallback } from 'react'
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-  DragOverlay,
-  DragStartEvent
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-  useSortable,
-  arrayMove
-} from '@dnd-kit/sortable'
+import { useCallback, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent, DragOverlay, type DragStartEvent } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { api } from '../../lib/api'
+import { useI18n } from '../../hooks/useI18n'
 import { useUiStore } from '../../store/uiStore'
 import { useEditorStore } from '../../store/editorStore'
 import { useDragStore } from '../../store/dragStore'
-import type { Note, Folder } from '../../types/note'
+import type { Folder, Note } from '../../types/note'
 import SearchBar from '../search/SearchBar'
-
-function formatDate(ts: number): string {
-  const d = new Date(ts)
-  const now = new Date()
-  if (d.toDateString() === now.toDateString()) {
-    return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-  }
-  const diff = now.getTime() - d.getTime()
-  if (diff < 1000 * 60 * 60 * 24 * 7) {
-    return d.toLocaleDateString('ko-KR', { weekday: 'short' })
-  }
-  return d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
-}
 
 type SortKey = 'updated_at' | 'created_at' | 'title' | 'manual'
 
@@ -43,16 +17,15 @@ function getPreviewMarkup(note: Note): string {
   if ('snippet' in note && typeof note.snippet === 'string' && note.snippet.trim()) {
     return note.snippet
   }
-
   if (note.content_html) {
     return note.content_html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100)
   }
-
   return note.content.split('\n').slice(1).join(' ').trim().slice(0, 100)
 }
 
 export default function NoteList() {
   const qc = useQueryClient()
+  const { t, locale } = useI18n()
   const {
     selectedFolderId,
     selectedTagId,
@@ -65,8 +38,20 @@ export default function NoteList() {
   const { setDraggingNote } = useDragStore()
   const [sort, setSort] = useState<SortKey>('updated_at')
   const [activeNote, setActiveNote] = useState<Note | null>(null)
-  // 드래그 중 낙관적 순서 관리
   const [optimisticNotes, setOptimisticNotes] = useState<Note[] | null>(null)
+
+  const formatDate = useCallback((ts: number) => {
+    const d = new Date(ts)
+    const now = new Date()
+    if (d.toDateString() === now.toDateString()) {
+      return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+    }
+    const diff = now.getTime() - d.getTime()
+    if (diff < 1000 * 60 * 60 * 24 * 7) {
+      return d.toLocaleDateString(locale, { weekday: 'short' })
+    }
+    return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+  }, [locale])
 
   const isSearching = searchQuery.trim().length > 0
 
@@ -124,10 +109,6 @@ export default function NoteList() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notes'] })
   })
 
-  const handleDelete = (noteId: string) => {
-    deleteNote.mutate(noteId)
-  }
-
   const handleSelectNote = useCallback((note: Note) => {
     if (isSearching && 'content_match_index' in note && typeof note.content_match_index === 'number' && note.content_match_index >= 0) {
       setPendingSearchMatch({
@@ -138,17 +119,13 @@ export default function NoteList() {
     } else {
       clearPendingSearchMatch()
     }
-
     setSelectedNote(note)
   }, [clearPendingSearchMatch, isSearching, searchQuery, setPendingSearchMatch, setSelectedNote])
 
-  // dnd-kit 센서: 5px 이상 이동 시 드래그 시작
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
-  )
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
-    const note = notes.find((n) => n.id === event.active.id)
+    const note = notes.find((entry) => entry.id === event.active.id)
     if (note) {
       setActiveNote(note)
       setDraggingNote(note)
@@ -160,8 +137,6 @@ export default function NoteList() {
     setDraggingNote(null)
 
     const { active, over } = event
-
-    // 드롭 위치의 DOM 요소 확인 (폴더 드롭 감지)
     const startEvent = event.activatorEvent as PointerEvent
     const endX = startEvent.clientX + event.delta.x
     const endY = startEvent.clientY + event.delta.y
@@ -173,57 +148,52 @@ export default function NoteList() {
       return
     }
 
-    // 같은 위치이거나 폴더 드롭이 아닌 경우 → 순서 변경
     if (!over || active.id === over.id) return
 
-    const oldIndex = notes.findIndex((n) => n.id === active.id)
-    const newIndex = notes.findIndex((n) => n.id === over.id)
+    const oldIndex = notes.findIndex((entry) => entry.id === active.id)
+    const newIndex = notes.findIndex((entry) => entry.id === over.id)
     if (oldIndex === -1 || newIndex === -1) return
 
     const reordered = arrayMove(notes, oldIndex, newIndex)
     setOptimisticNotes(reordered)
     setSort('manual')
-    reorderNotes.mutate(reordered.map((n) => n.id))
-  }, [notes, reorderNotes, moveNote])
+    reorderNotes.mutate(reordered.map((entry) => entry.id))
+  }, [moveNote, notes, reorderNotes, setDraggingNote])
 
   return (
-    <div className="h-full flex flex-col bg-white dark:bg-gray-900">
-      {/* 상단 도구 모음 */}
-      <div className="p-2 border-b border-gray-200 dark:border-gray-700 space-y-2">
+    <div className="flex h-full flex-col bg-white dark:bg-gray-900">
+      <div className="space-y-2 border-b border-gray-200 p-2 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-500 dark:text-gray-400">{displayNotes.length}개</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">{t('noteList.count', { count: displayNotes.length })}</span>
             <select
               value={sort}
               onChange={(e) => { setSort(e.target.value as SortKey); setOptimisticNotes(null) }}
-              className="text-xs text-gray-500 bg-transparent border-none outline-none cursor-pointer"
+              className="cursor-pointer border-none bg-transparent text-xs text-gray-500 outline-none"
             >
-              <option value="updated_at">최근 수정</option>
-              <option value="created_at">생성일</option>
-              <option value="title">제목</option>
-              <option value="manual">수동 정렬</option>
+              <option value="updated_at">{t('noteList.sort.updated_at')}</option>
+              <option value="created_at">{t('noteList.sort.created_at')}</option>
+              <option value="title">{t('noteList.sort.title')}</option>
+              <option value="manual">{t('noteList.sort.manual')}</option>
             </select>
           </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => createNote.mutate()}
-              className="text-xs px-2 py-1 rounded text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900 font-medium"
-              title="새 메모 (Ctrl+N)"
-            >
-              + 새 메모
-            </button>
-          </div>
+          <button
+            onClick={() => createNote.mutate()}
+            className="rounded px-2 py-1 text-xs font-medium text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900"
+            title={t('noteList.newNoteTitle')}
+          >
+            + {t('noteList.newNote')}
+          </button>
         </div>
         <SearchBar />
       </div>
 
-      {/* 메모 목록 */}
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
-          <div className="p-4 text-center text-gray-400 text-sm">로딩 중...</div>
+          <div className="p-4 text-center text-sm text-gray-400">{t('noteList.loading')}</div>
         ) : displayNotes.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 text-sm">
-            {isSearching ? '검색 결과가 없습니다.' : '메모가 없습니다.'}
+          <div className="p-8 text-center text-sm text-gray-400">
+            {isSearching ? t('noteList.emptySearch') : t('noteList.emptyNotes')}
           </div>
         ) : (
           <DndContext
@@ -232,7 +202,7 @@ export default function NoteList() {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <SortableContext items={displayNotes.map((n) => n.id)} strategy={verticalListSortingStrategy}>
+            <SortableContext items={displayNotes.map((note) => note.id)} strategy={verticalListSortingStrategy}>
               {displayNotes.map((note) => (
                 <SortableNoteItem
                   key={note.id}
@@ -240,17 +210,16 @@ export default function NoteList() {
                   folders={folders}
                   isSelected={selectedNoteId === note.id}
                   isDragging={activeNote?.id === note.id}
+                  formatDate={formatDate}
                   onClick={() => handleSelectNote(note)}
-                  onDelete={() => handleDelete(note.id)}
+                  onDelete={() => deleteNote.mutate(note.id)}
                   onMove={(folderId) => moveNote.mutate({ id: note.id, folderId })}
                 />
               ))}
             </SortableContext>
-
-            {/* 드래그 중 고스트 */}
             <DragOverlay>
               {activeNote && (
-                <div className="bg-white dark:bg-gray-800 border border-blue-400 rounded shadow-xl px-3 py-2.5 opacity-95 text-sm font-medium text-gray-800 dark:text-gray-100 max-w-xs">
+                <div className="max-w-xs rounded border border-blue-400 bg-white px-3 py-2.5 text-sm font-medium text-gray-800 opacity-95 shadow-xl dark:bg-gray-800 dark:text-gray-100">
                   {activeNote.title}
                 </div>
               )}
@@ -262,20 +231,20 @@ export default function NoteList() {
   )
 }
 
-// 드래그 가능한 메모 아이템
 function SortableNoteItem(props: NoteItemProps & { isDragging: boolean }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging: isSortableDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.note.id
   })
 
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isSortableDragging ? 0.3 : 1
-  }
-
   return (
-    <div ref={setNodeRef} style={style}>
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.3 : 1
+      }}
+    >
       <NoteItem {...props} dragHandleProps={{ ...attributes, ...listeners }} />
     </div>
   )
@@ -285,55 +254,55 @@ interface NoteItemProps {
   note: Note
   folders: Folder[]
   isSelected: boolean
+  formatDate: (ts: number) => string
   onClick: () => void
   onDelete: () => void
   onMove: (folderId: string | null) => void
   dragHandleProps?: Record<string, unknown>
 }
 
-function NoteItem({ note, folders, isSelected, onClick, onDelete, onMove, dragHandleProps }: NoteItemProps) {
+function NoteItem({ note, folders, isSelected, formatDate, onClick, onDelete, onMove, dragHandleProps }: NoteItemProps) {
+  const { t } = useI18n()
   const [showFolderMenu, setShowFolderMenu] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const previewMarkup = getPreviewMarkup(note)
 
   return (
     <div
-      className={`px-3 py-2.5 cursor-pointer border-b border-gray-100 dark:border-gray-800 group ${
+      className={`group cursor-pointer border-b border-gray-100 px-3 py-2.5 dark:border-gray-800 ${
         isSelected
-          ? 'bg-blue-50 dark:bg-blue-900/30 border-l-2 border-l-blue-500'
+          ? 'border-l-2 border-l-blue-500 bg-blue-50 dark:bg-blue-900/30'
           : 'hover:bg-gray-50 dark:hover:bg-gray-800'
       }`}
       onClick={onClick}
     >
       <div className="flex items-start gap-1">
-        {/* 드래그 핸들 */}
         <div
           {...dragHandleProps}
-          className="flex-shrink-0 mt-1 text-gray-200 dark:text-gray-700 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+          className="mt-1 flex-shrink-0 cursor-grab text-gray-200 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing dark:text-gray-700"
           onClick={(e) => e.stopPropagation()}
         >
-          ⠿
+          ⋮⋮
         </div>
 
-        {/* 본문 */}
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
-            <span className={`font-medium text-sm truncate ${isSelected ? 'text-blue-700 dark:text-blue-200' : 'text-gray-900 dark:text-gray-100'}`}>
+            <span className={`truncate text-sm font-medium ${isSelected ? 'text-blue-700 dark:text-blue-200' : 'text-gray-900 dark:text-gray-100'}`}>
               {note.title}
             </span>
           </div>
           {previewMarkup && (
             <p
-              className="search-preview text-xs text-gray-400 dark:text-gray-500 mt-0.5 line-clamp-1"
+              className="search-preview mt-0.5 line-clamp-1 text-xs text-gray-400 dark:text-gray-500"
               dangerouslySetInnerHTML={{ __html: previewMarkup }}
             />
           )}
-          <div className="flex items-center gap-1 mt-0.5">
+          <div className="mt-0.5 flex items-center gap-1">
             <span className="text-xs text-gray-300 dark:text-gray-600">{formatDate(note.updated_at)}</span>
             {note.tags && note.tags.length > 0 && (
               <div className="flex gap-0.5">
-                {note.tags.slice(0, 3).map(tag => (
-                  <span key={tag.id} className="text-xs px-1 rounded" style={{ backgroundColor: tag.color || '#e5e7eb', color: '#374151' }}>
+                {note.tags.slice(0, 3).map((tag) => (
+                  <span key={tag.id} className="rounded px-1 text-xs" style={{ backgroundColor: tag.color || '#e5e7eb', color: '#374151' }}>
                     #{tag.name}
                   </span>
                 ))}
@@ -342,40 +311,30 @@ function NoteItem({ note, folders, isSelected, onClick, onDelete, onMove, dragHa
           </div>
         </div>
 
-        {/* 액션 버튼 */}
-        <div className="hidden group-hover:flex items-center gap-0.5 flex-shrink-0 mt-0.5">
-          {/* 폴더 이동 */}
+        <div className="mt-0.5 hidden flex-shrink-0 items-center gap-0.5 group-hover:flex">
           <div className="relative">
             <button
-              onClick={(e) => { e.stopPropagation(); setShowFolderMenu((v) => !v) }}
-              className="w-6 h-6 flex items-center justify-center rounded text-gray-300 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs"
-              title="폴더 이동"
+              onClick={(e) => { e.stopPropagation(); setShowFolderMenu((value) => !value) }}
+              className="flex h-6 w-6 items-center justify-center rounded text-xs text-gray-300 hover:bg-gray-100 hover:text-blue-500 dark:hover:bg-gray-700"
+              title={t('noteList.moveFolder')}
             >
               📁
             </button>
             {showFolderMenu && (
-              <FolderDropdown
-                note={note}
-                folders={folders}
-                onMove={onMove}
-                onClose={() => setShowFolderMenu(false)}
-              />
+              <FolderDropdown note={note} folders={folders} onMove={onMove} onClose={() => setShowFolderMenu(false)} />
             )}
           </div>
 
           <div className="relative">
             <button
               onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(true) }}
-              className="w-6 h-6 flex items-center justify-center rounded text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 text-xs"
-              title="삭제"
+              className="flex h-6 w-6 items-center justify-center rounded text-xs text-gray-300 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/30"
+              title={t('noteList.delete')}
             >
-              🗑
+              ✕
             </button>
             {showDeleteConfirm && (
-              <DeleteConfirmPopup
-                onConfirm={() => { setShowDeleteConfirm(false); onDelete() }}
-                onCancel={() => setShowDeleteConfirm(false)}
-              />
+              <DeleteConfirmPopup onConfirm={() => { setShowDeleteConfirm(false); onDelete() }} onCancel={() => setShowDeleteConfirm(false)} />
             )}
           </div>
         </div>
@@ -384,58 +343,63 @@ function NoteItem({ note, folders, isSelected, onClick, onDelete, onMove, dragHa
   )
 }
 
-// 삭제 확인 팝업
 function DeleteConfirmPopup({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  const { t } = useI18n()
+
   return (
     <>
-      {/* 배경 클릭 시 취소 */}
       <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); onCancel() }} />
       <div
-        className="absolute right-0 top-full mt-1 z-20 bg-white dark:bg-gray-800 border border-red-200 dark:border-red-700 rounded shadow-lg px-2 py-1.5 flex items-center gap-1.5 whitespace-nowrap"
+        className="absolute right-0 top-full z-20 mt-1 flex items-center gap-1.5 whitespace-nowrap rounded border border-red-200 bg-white px-2 py-1.5 shadow-lg dark:border-red-700 dark:bg-gray-800"
         onClick={(e) => e.stopPropagation()}
       >
-        <span className="text-xs text-gray-500 dark:text-gray-400">삭제?</span>
+        <span className="text-xs text-gray-500 dark:text-gray-400">{t('noteList.deleteConfirm')}</span>
         <button
           onClick={onConfirm}
-          className="w-5 h-5 flex items-center justify-center rounded bg-red-500 hover:bg-red-600 text-white text-xs font-bold"
-          title="삭제 확인"
+          className="flex h-5 w-5 items-center justify-center rounded bg-red-500 text-xs font-bold text-white hover:bg-red-600"
+          title={t('noteList.delete')}
         >
-          ✕
+          ✓
         </button>
       </div>
     </>
   )
 }
 
-// 폴더 이동 드롭다운
 function FolderDropdown({ note, folders, onMove, onClose }: {
-  note: Note; folders: Folder[]
-  onMove: (id: string | null) => void; onClose: () => void
+  note: Note
+  folders: Folder[]
+  onMove: (id: string | null) => void
+  onClose: () => void
 }) {
+  const { t } = useI18n()
+
   return (
     <>
       <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); onClose() }} />
-    <div
-      className="absolute right-0 top-full mt-1 z-20 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 min-w-[140px]"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div className="px-3 py-1 text-xs text-gray-400 font-medium border-b border-gray-100 dark:border-gray-700 mb-1">폴더 이동</div>
-      <button
-        onClick={() => { onMove(null); onClose() }}
-        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 ${note.folder_id === null ? 'text-blue-600 font-medium' : 'text-gray-700 dark:text-gray-300'}`}
+      <div
+        className="absolute right-0 top-full z-20 mt-1 min-w-[140px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-800"
+        onClick={(e) => e.stopPropagation()}
       >
-        <span>📋</span> 폴더 없음 {note.folder_id === null && '✓'}
-      </button>
-      {folders.map((f) => (
+        <div className="mb-1 border-b border-gray-100 px-3 py-1 text-xs font-medium text-gray-400 dark:border-gray-700">
+          {t('noteList.moveFolder')}
+        </div>
         <button
-          key={f.id}
-          onClick={() => { onMove(f.id); onClose() }}
-          className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 ${note.folder_id === f.id ? 'text-blue-600 font-medium' : 'text-gray-700 dark:text-gray-300'}`}
+          onClick={() => { onMove(null); onClose() }}
+          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-700 ${note.folder_id === null ? 'font-medium text-blue-600' : 'text-gray-700 dark:text-gray-300'}`}
         >
-          <span>📁</span> <span className="truncate">{f.name}</span> {note.folder_id === f.id && '✓'}
+          <span>📋</span> {t('noteList.noFolder')} {note.folder_id === null && '✓'}
         </button>
-      ))}
-    </div>
+        {folders.map((folder) => (
+          <button
+            key={folder.id}
+            onClick={() => { onMove(folder.id); onClose() }}
+            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-700 ${note.folder_id === folder.id ? 'font-medium text-blue-600' : 'text-gray-700 dark:text-gray-300'}`}
+          >
+            <span>📁</span> <span className="truncate">{folder.name}</span> {note.folder_id === folder.id && '✓'}
+          </button>
+        ))}
+      </div>
     </>
   )
 }

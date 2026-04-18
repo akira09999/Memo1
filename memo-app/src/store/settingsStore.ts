@@ -1,20 +1,16 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import type { LanguagePreference } from '../i18n'
 
 export interface Settings {
-  // 일반
   theme: 'light' | 'dark' | 'sepia' | 'midnight' | 'forest' | 'rose'
-  language: 'ko' | 'en'
+  language: LanguagePreference
   startMinimized: boolean
   closeToTray: boolean
-
-  // 에디터
   fontSize: number
   autosaveDelay: number
   showLineNumbers: boolean
   spellCheck: boolean
-
-  // 데이터
   autoBackup: boolean
   autoBackupInterval: number
   autoBackupPath: string
@@ -30,9 +26,8 @@ interface SettingsState extends Settings {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      // 기본값
       theme: 'light',
-      language: 'ko',
+      language: 'system',
       startMinimized: false,
       closeToTray: true,
       fontSize: 14,
@@ -42,7 +37,6 @@ export const useSettingsStore = create<SettingsState>()(
       autoBackup: false,
       autoBackupInterval: 24,
       autoBackupPath: '',
-
       isOpen: false,
       openSettings: () => set({ isOpen: true }),
       closeSettings: () => set({ isOpen: false }),

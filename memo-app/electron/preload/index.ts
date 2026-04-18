@@ -66,9 +66,10 @@ contextBridge.exposeInMainWorld('api', {
     getLoginItem: (): Promise<boolean> =>
       ipcRenderer.invoke('app:getLoginItem'),
     setLoginItem: (enable: boolean): Promise<void> =>
-      ipcRenderer.invoke('app:setLoginItem', enable)
+      ipcRenderer.invoke('app:setLoginItem', enable),
+    setLanguage: (language: string): Promise<void> =>
+      ipcRenderer.invoke('app:setLanguage', language)
   }
 })
 
-// TypeScript 전역 타입 선언
 export {}

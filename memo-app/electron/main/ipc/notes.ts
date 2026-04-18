@@ -2,14 +2,14 @@ import { ipcMain } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
 import { getDb } from '../../db/client'
 import type { Note, NoteFilter, CreateNoteInput, UpdateNoteInput } from '../../../src/types/note'
+import { tMain } from '../i18n'
 
-// 본문 첫 줄에서 제목 자동 추출
 function extractTitle(content: string): string {
-  if (!content.trim()) return '제목 없음'
+  if (!content.trim()) return tMain('main.untitledNote')
+
   const firstLine = content.split('\n')[0].trim()
-  // H1 마크다운 헤더 처리
   if (firstLine.startsWith('# ')) return firstLine.slice(2).trim()
-  return firstLine || '제목 없음'
+  return firstLine || tMain('main.untitledNote')
 }
 
 export function setupIpcHandlers(): void {
@@ -28,7 +28,6 @@ export function setupIpcHandlers(): void {
     `
     const params: unknown[] = [filter?.is_archived ? 1 : 0]
 
-    // folder_id가 null이면 전체 메모 표시, string이면 해당 폴더만 표시
     if (filter?.folder_id != null) {
       query += ' AND n.folder_id = ?'
       params.push(filter.folder_id)
@@ -39,7 +38,7 @@ export function setupIpcHandlers(): void {
     }
 
     query += isManual
-      ? ` GROUP BY n.id ORDER BY n.is_pinned DESC, n.sort_order ASC`
+      ? ' GROUP BY n.id ORDER BY n.is_pinned DESC, n.sort_order ASC'
       : ` GROUP BY n.id ORDER BY n.is_pinned DESC, n.${sortCol} DESC`
 
     const rows = db.prepare(query).all(...params) as Record<string, unknown>[]
@@ -77,9 +76,9 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('notes:update', (_event, id: string, patch: UpdateNoteInput) => {
     const db = getDb()
     const now = Date.now()
-
     const current = db.prepare('SELECT * FROM notes WHERE id = ?').get(id) as Note | undefined
-    if (!current) throw new Error(`메모를 찾을 수 없습니다: ${id}`)
+
+    if (!current) throw new Error(`${tMain('main.noteNotFound')}: ${id}`)
 
     const title = patch.title !== undefined
       ? patch.title
@@ -119,12 +118,11 @@ export function setupIpcHandlers(): void {
       .run(pinned ? 1 : 0, Date.now(), id)
   })
 
-  // 순서 일괄 업데이트: ids 배열 순서대로 sort_order를 0,1,2... 로 재설정
   ipcMain.handle('notes:reorder', (_event, ids: string[]) => {
     const db = getDb()
     const stmt = db.prepare('UPDATE notes SET sort_order = ? WHERE id = ?')
     const transaction = db.transaction((list: string[]) => {
-      list.forEach((id, index) => stmt.run(index, id))
+      list.forEach((noteId, index) => stmt.run(index, noteId))
     })
     transaction(ids)
   })
@@ -132,8 +130,8 @@ export function setupIpcHandlers(): void {
 
 function rowToNote(row: Record<string, unknown>): Note {
   const tags = row.tag_data
-    ? String(row.tag_data).split(',').filter(Boolean).map((s) => {
-        const [tagId, name, color] = s.split(':')
+    ? String(row.tag_data).split(',').filter(Boolean).map((entry) => {
+        const [tagId, name, color] = entry.split(':')
         return { id: tagId, name, color: color || null }
       })
     : []

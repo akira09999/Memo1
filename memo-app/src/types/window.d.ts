@@ -46,6 +46,7 @@ declare global {
         openExternal(url: string): Promise<void>
         getLoginItem(): Promise<boolean>
         setLoginItem(enable: boolean): Promise<void>
+        setLanguage(language: string): Promise<void>
       }
     }
   }

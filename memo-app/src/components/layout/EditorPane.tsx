@@ -1,9 +1,11 @@
-import { useEditorStore } from '../../store/editorStore'
-import Editor from '../editor/Editor'
 import { api } from '../../lib/api'
+import { useEditorStore } from '../../store/editorStore'
+import { useI18n } from '../../hooks/useI18n'
+import Editor from '../editor/Editor'
 
 export default function EditorPane() {
   const { selectedNote, isDirty } = useEditorStore()
+  const { t } = useI18n()
 
   const exportMarkdown = async () => {
     if (!selectedNote) return
@@ -12,36 +14,32 @@ export default function EditorPane() {
 
   if (!selectedNote) {
     return (
-      <div className="h-full flex items-center justify-center bg-white dark:bg-gray-900">
+      <div className="flex h-full items-center justify-center bg-white dark:bg-gray-900">
         <div className="text-center text-gray-400">
-          <div className="text-4xl mb-3">📝</div>
-          <p className="text-sm">메모를 선택하거나 새 메모를 만드세요.</p>
-          <p className="text-xs mt-1 text-gray-300">Ctrl+N으로 새 메모 생성</p>
+          <div className="mb-3 text-4xl">🗒</div>
+          <p className="text-sm">{t('editor.emptyTitle')}</p>
+          <p className="mt-1 text-xs text-gray-300">{t('editor.emptyShortcut')}</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="h-full flex flex-col bg-white dark:bg-gray-900">
-      {/* 상단 도구 모음 */}
-      <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
-        <span className="font-semibold text-gray-800 dark:text-gray-100 truncate flex-1 text-sm">
+    <div className="flex h-full flex-col bg-white dark:bg-gray-900">
+      <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-2 dark:border-gray-700">
+        <span className="flex-1 truncate text-sm font-semibold text-gray-800 dark:text-gray-100">
           {selectedNote.title}
         </span>
-        {isDirty && <span className="text-xs text-gray-400">저장 중...</span>}
-
-        {/* 도구 버튼들 */}
+        {isDirty && <span className="text-xs text-gray-400">{t('editor.saving')}</span>}
         <button
           onClick={exportMarkdown}
-          className="text-xs px-2 py-1 rounded text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-          title="Markdown으로 내보내기"
+          className="rounded px-2 py-1 text-xs text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+          title={t('editor.exportMarkdown')}
         >
-          ↓MD
+          MD
         </button>
       </div>
 
-      {/* 에디터 */}
       <div className="flex-1 overflow-hidden">
         <Editor note={selectedNote} />
       </div>

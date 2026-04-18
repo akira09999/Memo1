@@ -1,13 +1,14 @@
+import { useEffect, useRef, useCallback } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
+import type { Editor as TiptapEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import { useEffect, useRef, useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import type { Editor as TiptapEditor } from '@tiptap/react'
 import { api } from '../../lib/api'
+import { useI18n } from '../../hooks/useI18n'
 import { useEditorStore } from '../../store/editorStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useUiStore } from '../../store/uiStore'
@@ -24,10 +25,7 @@ type SearchHighlightState = {
 function scrollSelectionIntoView(editor: TiptapEditor, from: number, to: number) {
   editor.commands.setTextSelection({ from, to })
   const domInfo = editor.view.domAtPos(from)
-  const el = domInfo.node instanceof HTMLElement
-    ? domInfo.node
-    : domInfo.node.parentElement
-
+  const el = domInfo.node instanceof HTMLElement ? domInfo.node : domInfo.node.parentElement
   el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
 }
 
@@ -85,8 +83,7 @@ function buildSearchDecorations(doc: TiptapEditor['state']['doc'], query: string
   doc.descendants((node, pos) => {
     if (!node.isText || !node.text) return true
 
-    const text = node.text
-    const lowerText = text.toLowerCase()
+    const lowerText = node.text.toLowerCase()
     const startOffset = doc.textBetween(0, pos, TEXT_BLOCK_SEPARATOR, TEXT_BLOCK_SEPARATOR).length
     let searchFrom = 0
 
@@ -97,9 +94,7 @@ function buildSearchDecorations(doc: TiptapEditor['state']['doc'], query: string
       const from = pos + idx
       const to = from + query.length
       const matchIndex = startOffset + idx
-      const className = matchIndex === activeIndex
-        ? 'search-highlight search-highlight-current'
-        : 'search-highlight'
+      const className = matchIndex === activeIndex ? 'search-highlight search-highlight-current' : 'search-highlight'
 
       decorations.push(Decoration.inline(from, to, { class: className }))
       searchFrom = idx + Math.max(query.length, 1)
@@ -132,11 +127,7 @@ const SearchHighlightExtension = Extension.create({
         props: {
           decorations(state) {
             const pluginState = searchHighlightPluginKey.getState(state) as SearchHighlightState | undefined
-            return buildSearchDecorations(
-              state.doc,
-              pluginState?.query ?? '',
-              pluginState?.activeIndex ?? null
-            )
+            return buildSearchDecorations(state.doc, pluginState?.query ?? '', pluginState?.activeIndex ?? null)
           }
         }
       })
@@ -150,6 +141,7 @@ interface EditorProps {
 
 export default function Editor({ note }: EditorProps) {
   const qc = useQueryClient()
+  const { t } = useI18n()
   const { setIsDirty, setSelectedNote } = useEditorStore()
   const { fontSize, autosaveDelay, spellCheck } = useSettingsStore()
   const { searchQuery, pendingSearchMatch, clearPendingSearchMatch } = useUiStore()
@@ -172,17 +164,16 @@ export default function Editor({ note }: EditorProps) {
 
   const scheduleAutosave = useCallback((content: string, content_html: string) => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
-
     setIsDirty(true)
     saveTimer.current = setTimeout(() => {
       updateNote.mutate({ content, content_html })
     }, autosaveDelayRef.current)
-  }, [updateNote, setIsDirty])
+  }, [setIsDirty, updateNote])
 
   const editor = useEditor({
     extensions: [
       StarterKit,
-      Placeholder.configure({ placeholder: '내용을 입력하세요...' }),
+      Placeholder.configure({ placeholder: t('editor.placeholder') }),
       SearchHighlightExtension
     ],
     content: note.content_html || note.content,
@@ -195,15 +186,12 @@ export default function Editor({ note }: EditorProps) {
         spellcheck: String(spellCheck)
       }
     }
-  })
+  }, [spellCheck, t('editor.placeholder')])
 
   useEffect(() => {
     if (!editor) return
 
-    const activeIndex = pendingSearchMatch?.noteId === note.id
-      ? pendingSearchMatch.index
-      : null
-
+    const activeIndex = pendingSearchMatch?.noteId === note.id ? pendingSearchMatch.index : null
     editor.view.dispatch(
       editor.state.tr.setMeta(searchHighlightPluginKey, {
         query: searchQuery.trim(),
@@ -237,14 +225,14 @@ export default function Editor({ note }: EditorProps) {
       requestAnimationFrame(runScroll)
     })
   }, [
-    note.id,
+    clearPendingSearchMatch,
+    editor,
     note.content,
     note.content_html,
-    editor,
-    setIsDirty,
-    searchQuery,
+    note.id,
     pendingSearchMatch,
-    clearPendingSearchMatch
+    searchQuery,
+    setIsDirty
   ])
 
   useEffect(() => {
@@ -254,10 +242,7 @@ export default function Editor({ note }: EditorProps) {
   }, [])
 
   return (
-    <div
-      className="h-full overflow-y-auto"
-      style={{ fontSize: `${fontSize}px` }}
-    >
+    <div className="h-full overflow-y-auto" style={{ fontSize: `${fontSize}px` }}>
       <EditorContent editor={editor} className="h-full" />
     </div>
   )
