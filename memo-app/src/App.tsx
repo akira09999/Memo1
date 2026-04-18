@@ -1,5 +1,5 @@
-import { useCallback, useRef } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Sidebar from './components/layout/Sidebar'
 import NoteList from './components/layout/NoteList'
 import EditorPane from './components/layout/EditorPane'
@@ -14,7 +14,7 @@ import { useLanguageSync } from './hooks/useI18n'
 
 export default function App() {
   const { sidebarWidth, noteListWidth, selectedFolderId, setSidebarWidth, setNoteListWidth, setSearchQuery } = useUiStore()
-  const { setSelectedNote } = useEditorStore()
+  const { selectedNoteId, selectedNote, setSelectedNote } = useEditorStore()
   const { openSettings } = useSettingsStore()
   const qc = useQueryClient()
 
@@ -37,6 +37,18 @@ export default function App() {
     { key: 'n', ctrl: true, handler: () => createNote.mutate() },
     { key: ',', ctrl: true, handler: () => openSettings() }
   ])
+
+  const { data: restoredNote } = useQuery({
+    queryKey: ['note', selectedNoteId],
+    queryFn: () => api.notes.get(selectedNoteId as string),
+    enabled: Boolean(selectedNoteId) && selectedNote?.id !== selectedNoteId
+  })
+
+  useEffect(() => {
+    if (restoredNote) {
+      setSelectedNote(restoredNote)
+    }
+  }, [restoredNote, setSelectedNote])
 
   const onSidebarDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()

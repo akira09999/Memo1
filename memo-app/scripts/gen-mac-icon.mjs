@@ -2,8 +2,9 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { spawnSync } from 'child_process'
+import { fileURLToPath } from 'url'
 
-const rootDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const resourcesDir = path.join(rootDir, 'resources')
 const sourcePng = path.join(resourcesDir, 'icon.png')
 const targetIcns = path.join(resourcesDir, 'icon.icns')

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import type { Note } from '../types/note'
 
 interface EditorState {
@@ -10,11 +11,21 @@ interface EditorState {
   setIsDirty: (dirty: boolean) => void
 }
 
-export const useEditorStore = create<EditorState>((set) => ({
-  selectedNoteId: null,
-  selectedNote: null,
-  isDirty: false,
-  setSelectedNote: (note) => set({ selectedNote: note, selectedNoteId: note?.id ?? null, isDirty: false }),
-  setSelectedNoteId: (id) => set({ selectedNoteId: id }),
-  setIsDirty: (dirty) => set({ isDirty: dirty })
-}))
+export const useEditorStore = create<EditorState>()(
+  persist(
+    (set) => ({
+      selectedNoteId: null,
+      selectedNote: null,
+      isDirty: false,
+      setSelectedNote: (note) => set({ selectedNote: note, selectedNoteId: note?.id ?? null, isDirty: false }),
+      setSelectedNoteId: (id) => set({ selectedNoteId: id }),
+      setIsDirty: (dirty) => set({ isDirty: dirty })
+    }),
+    {
+      name: 'memo-editor-state',
+      partialize: (state) => ({
+        selectedNoteId: state.selectedNoteId
+      })
+    }
+  )
+)

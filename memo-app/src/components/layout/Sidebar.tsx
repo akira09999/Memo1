@@ -3,45 +3,42 @@ import { useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import { useI18n } from '../../hooks/useI18n'
 import { useUiStore } from '../../store/uiStore'
-import { useDragStore } from '../../store/dragStore'
-import type { Folder, Tag } from '../../types/note'
 
 export default function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const qc = useQueryClient()
   const { t } = useI18n()
-  const { selectedFolderId, selectedTagId, setSelectedFolderId, setSelectedTagId } = useUiStore()
-  const { draggingNote } = useDragStore()
+  const { selectedTagId, setSelectedFolderId, setSelectedTagId } = useUiStore()
+  const [showNewTag, setShowNewTag] = useState(false)
+  const [newTagName, setNewTagName] = useState('')
+  const newTagInputRef = useRef<HTMLInputElement>(null)
 
-  const { data: folders = [] } = useQuery({ queryKey: ['folders'], queryFn: () => api.folders.list() })
   const { data: tags = [] } = useQuery({ queryKey: ['tags'], queryFn: () => api.tags.list() })
 
-  const createFolder = useMutation({
-    mutationFn: () => api.folders.create({ name: t('sidebar.newFolder') }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['folders'] })
-  })
-
-  const renameFolder = useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) => api.folders.rename(id, name),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['folders'] })
-  })
-
-  const deleteFolder = useMutation({
-    mutationFn: (id: string) => api.folders.delete(id),
+  const createTag = useMutation({
+    mutationFn: (name: string) => api.tags.create(name),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['folders'] })
-      qc.invalidateQueries({ queryKey: ['notes'] })
+      qc.invalidateQueries({ queryKey: ['tags'] })
+      setNewTagName('')
+      setShowNewTag(false)
     }
   })
 
   const deleteTag = useMutation({
     mutationFn: (id: string) => api.tags.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tags'] })
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tags'] })
+      qc.invalidateQueries({ queryKey: ['notes'] })
+    }
   })
 
-  const handleRenameFolder = (folder: Folder, newName: string) => {
-    if (newName.trim() && newName.trim() !== folder.name) {
-      renameFolder.mutate({ id: folder.id, name: newName.trim() })
-    }
+  const handleCreateTag = () => {
+    const name = newTagName.trim()
+    if (name) createTag.mutate(name)
+  }
+
+  const handleShowNewTag = () => {
+    setShowNewTag(true)
+    setTimeout(() => newTagInputRef.current?.focus(), 0)
   }
 
   return (
@@ -64,54 +61,55 @@ export default function Sidebar({ onOpenSettings }: { onOpenSettings: () => void
 
         <SidebarItem
           label={t('sidebar.allNotes')}
-          active={selectedFolderId === null && selectedTagId === null}
-          onClick={() => setSelectedFolderId(null)}
+          active={selectedTagId === null}
+          onClick={() => { setSelectedFolderId(null); setSelectedTagId(null) }}
         />
 
         <div className="mt-3 flex items-center justify-between px-2 py-1">
-          <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">{t('sidebar.folders')}</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">{t('sidebar.tags')}</span>
           <button
-            onClick={() => createFolder.mutate()}
+            onClick={handleShowNewTag}
             className="flex h-5 w-5 items-center justify-center rounded text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-600 dark:hover:text-gray-200"
-            title={t('sidebar.createFolder')}
+            title={t('sidebar.createTag')}
           >
             +
           </button>
         </div>
 
-        {folders.map((folder) => (
+        {showNewTag && (
+          <div className="px-2 py-1">
+            <input
+              ref={newTagInputRef}
+              value={newTagName}
+              onChange={(e) => setNewTagName(e.target.value)}
+              onBlur={() => { setShowNewTag(false); setNewTagName('') }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCreateTag()
+                if (e.key === 'Escape') { setShowNewTag(false); setNewTagName('') }
+              }}
+              placeholder={t('sidebar.tagNamePlaceholder')}
+              className="w-full rounded border border-blue-400 bg-white px-1.5 py-1 text-xs text-gray-900 outline-none dark:bg-gray-700 dark:text-gray-100"
+            />
+          </div>
+        )}
+
+        {tags.length === 0 && !showNewTag && (
+          <p className="px-2 py-2 text-xs text-gray-400 dark:text-gray-600">{t('sidebar.noTags')}</p>
+        )}
+
+        {tags.map((tag) => (
           <SidebarItem
-            key={folder.id}
-            label={folder.name}
-            active={selectedFolderId === folder.id}
-            isDragTarget={Boolean(draggingNote && draggingNote.folder_id !== folder.id)}
-            folderId={folder.id}
-            onClick={() => setSelectedFolderId(folder.id)}
-            onRename={(newName) => handleRenameFolder(folder, newName)}
+            key={tag.id}
+            label={`# ${tag.name}`}
+            active={selectedTagId === tag.id}
+            onClick={() => setSelectedTagId(tag.id)}
+            color={tag.color ?? undefined}
             onDelete={() => {
-              deleteFolder.mutate(folder.id)
-              if (selectedFolderId === folder.id) setSelectedFolderId(null)
+              deleteTag.mutate(tag.id)
+              if (selectedTagId === tag.id) setSelectedTagId(null)
             }}
           />
         ))}
-
-        {tags.length > 0 && (
-          <>
-            <div className="mt-3 px-2 py-1 text-xs font-semibold uppercase tracking-wider text-gray-400">
-              {t('sidebar.tags')}
-            </div>
-            {tags.map((tag) => (
-              <SidebarItem
-                key={tag.id}
-                label={`# ${tag.name}`}
-                active={selectedTagId === tag.id}
-                onClick={() => setSelectedTagId(tag.id)}
-                color={tag.color ?? undefined}
-                onDelete={() => deleteTag.mutate(tag.id)}
-              />
-            ))}
-          </>
-        )}
       </div>
     </div>
   )
@@ -120,84 +118,39 @@ export default function Sidebar({ onOpenSettings }: { onOpenSettings: () => void
 function SidebarItem({
   label,
   active,
-  isDragTarget,
-  folderId,
   onClick,
-  onRename,
   onDelete,
   color
 }: {
   label: string
   active: boolean
-  isDragTarget?: boolean
-  folderId?: string
   onClick: () => void
-  onRename?: (newName: string) => void
   onDelete?: () => void
   color?: string
 }) {
   const { t } = useI18n()
-  const [editing, setEditing] = useState(false)
-  const [editValue, setEditValue] = useState(label)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const startEdit = () => {
-    setEditValue(label)
-    setEditing(true)
-    setTimeout(() => inputRef.current?.select(), 0)
-  }
-
-  const commitEdit = () => {
-    setEditing(false)
-    onRename?.(editValue)
-  }
-
-  if (editing) {
-    return (
-      <div className="px-2 py-1">
-        <input
-          ref={inputRef}
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onBlur={commitEdit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') commitEdit()
-            if (e.key === 'Escape') setEditing(false)
-          }}
-          className="w-full rounded border border-blue-400 bg-white px-1.5 py-1 text-xs text-gray-900 outline-none dark:bg-gray-700 dark:text-gray-100"
-          autoFocus
-        />
-      </div>
-    )
-  }
 
   return (
     <div
-      data-folder-id={folderId}
       className={`group flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-sm transition-colors ${
-        isDragTarget
-          ? 'border border-dashed border-green-400 bg-green-100 dark:border-green-500 dark:bg-green-900/40'
-          : active
-            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200'
-            : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
+        active
+          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200'
+          : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
       }`}
       onClick={onClick}
-      onDoubleClick={onRename ? (event) => { event.stopPropagation(); startEdit() } : undefined}
     >
       <span className="truncate text-xs" style={color ? { color } : undefined}>
-        {folderId ? `📁 ${label}` : label}
+        {label}
       </span>
-      <div className="ml-1 hidden items-center gap-0.5 group-hover:flex">
-        {onDelete && (
-          <button
-            className="flex h-4 w-4 items-center justify-center text-xs text-gray-400 hover:text-red-500"
-            onClick={(e) => { e.stopPropagation(); onDelete() }}
-            title={t('sidebar.delete')}
-          >
-            ×
-          </button>
-        )}
-      </div>
+      {onDelete && (
+        <button
+          className="ml-1 hidden h-4 w-4 items-center justify-center text-xs text-gray-400 hover:text-red-500 group-hover:flex"
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          title={t('sidebar.delete')}
+        >
+          ×
+        </button>
+      )}
     </div>
   )
 }

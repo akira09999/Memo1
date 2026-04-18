@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent, DragOverlay, type DragStartEvent } from '@dnd-kit/core'
+import { DndContext, PointerSensor, closestCenter, pointerWithin, useSensor, useSensors, type CollisionDetection, type DragEndEvent, DragOverlay, type DragStartEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { api } from '../../lib/api'
@@ -8,7 +8,7 @@ import { useI18n } from '../../hooks/useI18n'
 import { useUiStore } from '../../store/uiStore'
 import { useEditorStore } from '../../store/editorStore'
 import { useDragStore } from '../../store/dragStore'
-import type { Folder, Note } from '../../types/note'
+import type { Note, Tag } from '../../types/note'
 import SearchBar from '../search/SearchBar'
 
 type SortKey = 'updated_at' | 'created_at' | 'title' | 'manual'
@@ -29,16 +29,18 @@ export default function NoteList() {
   const {
     selectedFolderId,
     selectedTagId,
+    noteSort,
     searchQuery,
+    setNoteSort,
     setSearchQuery,
     setPendingSearchMatch,
     clearPendingSearchMatch
   } = useUiStore()
   const { selectedNoteId, setSelectedNote } = useEditorStore()
   const { setDraggingNote } = useDragStore()
-  const [sort, setSort] = useState<SortKey>('updated_at')
   const [activeNote, setActiveNote] = useState<Note | null>(null)
   const [optimisticNotes, setOptimisticNotes] = useState<Note[] | null>(null)
+  const sort = noteSort
 
   const formatDate = useCallback((ts: number) => {
     const d = new Date(ts)
@@ -73,9 +75,9 @@ export default function NoteList() {
     enabled: isSearching
   })
 
-  const { data: folders = [] } = useQuery({
-    queryKey: ['folders'],
-    queryFn: () => api.folders.list()
+  const { data: allTags = [] } = useQuery({
+    queryKey: ['tags'],
+    queryFn: () => api.tags.list()
   })
 
   const notes = optimisticNotes ?? fetchedNotes
@@ -98,12 +100,6 @@ export default function NoteList() {
     }
   })
 
-  const moveNote = useMutation({
-    mutationFn: ({ id, folderId }: { id: string; folderId: string | null }) =>
-      api.notes.update(id, { folder_id: folderId }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['notes'] })
-  })
-
   const reorderNotes = useMutation({
     mutationFn: (ids: string[]) => api.notes.reorder(ids),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notes'] })
@@ -123,6 +119,11 @@ export default function NoteList() {
   }, [clearPendingSearchMatch, isSearching, searchQuery, setPendingSearchMatch, setSelectedNote])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const collisionDetection = useCallback<CollisionDetection>((args) => {
+    const pointerHits = pointerWithin(args)
+    if (pointerHits.length > 0) return pointerHits
+    return closestCenter(args)
+  }, [])
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const note = notes.find((entry) => entry.id === event.active.id)
@@ -137,17 +138,6 @@ export default function NoteList() {
     setDraggingNote(null)
 
     const { active, over } = event
-    const startEvent = event.activatorEvent as PointerEvent
-    const endX = startEvent.clientX + event.delta.x
-    const endY = startEvent.clientY + event.delta.y
-    const el = document.elementFromPoint(endX, endY)
-    const folderEl = el?.closest('[data-folder-id]') as HTMLElement | null
-    if (folderEl) {
-      const folderId = folderEl.getAttribute('data-folder-id')
-      moveNote.mutate({ id: active.id as string, folderId })
-      return
-    }
-
     if (!over || active.id === over.id) return
 
     const oldIndex = notes.findIndex((entry) => entry.id === active.id)
@@ -156,9 +146,9 @@ export default function NoteList() {
 
     const reordered = arrayMove(notes, oldIndex, newIndex)
     setOptimisticNotes(reordered)
-    setSort('manual')
+    setNoteSort('manual')
     reorderNotes.mutate(reordered.map((entry) => entry.id))
-  }, [moveNote, notes, reorderNotes, setDraggingNote])
+  }, [notes, reorderNotes, setDraggingNote, setNoteSort])
 
   return (
     <div className="flex h-full flex-col bg-white dark:bg-gray-900">
@@ -168,7 +158,7 @@ export default function NoteList() {
             <span className="text-xs text-gray-500 dark:text-gray-400">{t('noteList.count', { count: displayNotes.length })}</span>
             <select
               value={sort}
-              onChange={(e) => { setSort(e.target.value as SortKey); setOptimisticNotes(null) }}
+              onChange={(e) => { setNoteSort(e.target.value as SortKey); setOptimisticNotes(null) }}
               className="cursor-pointer border-none bg-transparent text-xs text-gray-500 outline-none"
             >
               <option value="updated_at">{t('noteList.sort.updated_at')}</option>
@@ -198,7 +188,7 @@ export default function NoteList() {
         ) : (
           <DndContext
             sensors={sensors}
-            collisionDetection={closestCenter}
+            collisionDetection={collisionDetection}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
@@ -207,13 +197,12 @@ export default function NoteList() {
                 <SortableNoteItem
                   key={note.id}
                   note={note}
-                  folders={folders}
+                  allTags={allTags}
                   isSelected={selectedNoteId === note.id}
                   isDragging={activeNote?.id === note.id}
                   formatDate={formatDate}
                   onClick={() => handleSelectNote(note)}
                   onDelete={() => deleteNote.mutate(note.id)}
-                  onMove={(folderId) => moveNote.mutate({ id: note.id, folderId })}
                 />
               ))}
             </SortableContext>
@@ -252,18 +241,17 @@ function SortableNoteItem(props: NoteItemProps & { isDragging: boolean }) {
 
 interface NoteItemProps {
   note: Note
-  folders: Folder[]
+  allTags: Tag[]
   isSelected: boolean
   formatDate: (ts: number) => string
   onClick: () => void
   onDelete: () => void
-  onMove: (folderId: string | null) => void
   dragHandleProps?: Record<string, unknown>
 }
 
-function NoteItem({ note, folders, isSelected, formatDate, onClick, onDelete, onMove, dragHandleProps }: NoteItemProps) {
+function NoteItem({ note, allTags, isSelected, formatDate, onClick, onDelete, dragHandleProps }: NoteItemProps) {
   const { t } = useI18n()
-  const [showFolderMenu, setShowFolderMenu] = useState(false)
+  const [showTagMenu, setShowTagMenu] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const previewMarkup = getPreviewMarkup(note)
 
@@ -279,18 +267,23 @@ function NoteItem({ note, folders, isSelected, formatDate, onClick, onDelete, on
       <div className="flex items-start gap-1">
         <div
           {...dragHandleProps}
-          className="mt-1 flex-shrink-0 cursor-grab text-gray-200 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing dark:text-gray-700"
+          className="-ml-1 flex-shrink-0 self-center cursor-grab text-gray-300 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing dark:text-gray-600"
           onClick={(e) => e.stopPropagation()}
         >
-          ⋮⋮
+          <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+            <circle cx="2.5" cy="2.5" r="1.5"/>
+            <circle cx="7.5" cy="2.5" r="1.5"/>
+            <circle cx="2.5" cy="7" r="1.5"/>
+            <circle cx="7.5" cy="7" r="1.5"/>
+            <circle cx="2.5" cy="11.5" r="1.5"/>
+            <circle cx="7.5" cy="11.5" r="1.5"/>
+          </svg>
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1">
-            <span className={`truncate text-sm font-medium ${isSelected ? 'text-blue-700 dark:text-blue-200' : 'text-gray-900 dark:text-gray-100'}`}>
-              {note.title}
-            </span>
-          </div>
+          <span className={`block truncate text-sm font-medium ${isSelected ? 'text-blue-700 dark:text-blue-200' : 'text-gray-900 dark:text-gray-100'}`}>
+            {note.title}
+          </span>
           {previewMarkup && (
             <p
               className="search-preview mt-0.5 line-clamp-1 text-xs text-gray-400 dark:text-gray-500"
@@ -300,7 +293,7 @@ function NoteItem({ note, folders, isSelected, formatDate, onClick, onDelete, on
           <div className="mt-0.5 flex items-center gap-1">
             <span className="text-xs text-gray-300 dark:text-gray-600">{formatDate(note.updated_at)}</span>
             {note.tags && note.tags.length > 0 && (
-              <div className="flex gap-0.5">
+              <div className="flex flex-wrap gap-0.5">
                 {note.tags.slice(0, 3).map((tag) => (
                   <span key={tag.id} className="rounded px-1 text-xs" style={{ backgroundColor: tag.color || '#e5e7eb', color: '#374151' }}>
                     #{tag.name}
@@ -314,14 +307,14 @@ function NoteItem({ note, folders, isSelected, formatDate, onClick, onDelete, on
         <div className="mt-0.5 hidden flex-shrink-0 items-center gap-0.5 group-hover:flex">
           <div className="relative">
             <button
-              onClick={(e) => { e.stopPropagation(); setShowFolderMenu((value) => !value) }}
+              onClick={(e) => { e.stopPropagation(); setShowTagMenu((v) => !v) }}
               className="flex h-6 w-6 items-center justify-center rounded text-xs text-gray-300 hover:bg-gray-100 hover:text-blue-500 dark:hover:bg-gray-700"
-              title={t('noteList.moveFolder')}
+              title={t('noteList.assignTag')}
             >
-              📁
+              #
             </button>
-            {showFolderMenu && (
-              <FolderDropdown note={note} folders={folders} onMove={onMove} onClose={() => setShowFolderMenu(false)} />
+            {showTagMenu && (
+              <TagDropdown note={note} allTags={allTags} onClose={() => setShowTagMenu(false)} />
             )}
           </div>
 
@@ -343,6 +336,60 @@ function NoteItem({ note, folders, isSelected, formatDate, onClick, onDelete, on
   )
 }
 
+function TagDropdown({ note, allTags, onClose }: {
+  note: Note
+  allTags: Tag[]
+  onClose: () => void
+}) {
+  const qc = useQueryClient()
+  const { t } = useI18n()
+  const assignedIds = new Set(note.tags?.map((tag) => tag.id) ?? [])
+
+  const assignTags = useMutation({
+    mutationFn: (tagIds: string[]) => api.tags.assignToNote(note.id, tagIds),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['notes'] })
+  })
+
+  const toggle = (tagId: string) => {
+    const next = assignedIds.has(tagId)
+      ? [...assignedIds].filter((id) => id !== tagId)
+      : [...assignedIds, tagId]
+    assignTags.mutate(next)
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); onClose() }} />
+      <div
+        className="absolute right-0 top-full z-20 mt-1 min-w-[150px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-800"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-1 border-b border-gray-100 px-3 py-1 text-xs font-medium text-gray-400 dark:border-gray-700">
+          {t('noteList.assignTag')}
+        </div>
+        {allTags.length === 0 && (
+          <div className="px-3 py-1.5 text-xs text-gray-400">{t('sidebar.noTags')}</div>
+        )}
+        {allTags.map((tag) => {
+          const assigned = assignedIds.has(tag.id)
+          return (
+            <button
+              key={tag.id}
+              onClick={() => toggle(tag.id)}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+            >
+              <span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[9px] font-bold ${assigned ? 'border-blue-500 bg-blue-500 text-white' : 'border-gray-300 dark:border-gray-600'}`}>
+                {assigned && '✓'}
+              </span>
+              <span style={tag.color ? { color: tag.color } : undefined}>#{tag.name}</span>
+            </button>
+          )
+        })}
+      </div>
+    </>
+  )
+}
+
 function DeleteConfirmPopup({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
   const { t } = useI18n()
 
@@ -361,44 +408,6 @@ function DeleteConfirmPopup({ onConfirm, onCancel }: { onConfirm: () => void; on
         >
           ✓
         </button>
-      </div>
-    </>
-  )
-}
-
-function FolderDropdown({ note, folders, onMove, onClose }: {
-  note: Note
-  folders: Folder[]
-  onMove: (id: string | null) => void
-  onClose: () => void
-}) {
-  const { t } = useI18n()
-
-  return (
-    <>
-      <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); onClose() }} />
-      <div
-        className="absolute right-0 top-full z-20 mt-1 min-w-[140px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-800"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-1 border-b border-gray-100 px-3 py-1 text-xs font-medium text-gray-400 dark:border-gray-700">
-          {t('noteList.moveFolder')}
-        </div>
-        <button
-          onClick={() => { onMove(null); onClose() }}
-          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-700 ${note.folder_id === null ? 'font-medium text-blue-600' : 'text-gray-700 dark:text-gray-300'}`}
-        >
-          <span>📋</span> {t('noteList.noFolder')} {note.folder_id === null && '✓'}
-        </button>
-        {folders.map((folder) => (
-          <button
-            key={folder.id}
-            onClick={() => { onMove(folder.id); onClose() }}
-            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-700 ${note.folder_id === folder.id ? 'font-medium text-blue-600' : 'text-gray-700 dark:text-gray-300'}`}
-          >
-            <span>📁</span> <span className="truncate">{folder.name}</span> {note.folder_id === folder.id && '✓'}
-          </button>
-        ))}
       </div>
     </>
   )

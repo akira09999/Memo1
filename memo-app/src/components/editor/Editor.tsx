@@ -144,10 +144,14 @@ export default function Editor({ note }: EditorProps) {
   const { t } = useI18n()
   const { setIsDirty, setSelectedNote } = useEditorStore()
   const { fontSize, autosaveDelay, spellCheck } = useSettingsStore()
-  const { searchQuery, pendingSearchMatch, clearPendingSearchMatch } = useUiStore()
+  const { searchQuery, pendingSearchMatch, clearPendingSearchMatch, noteScrollPositions, setNoteScrollPosition } = useUiStore()
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const currentNoteId = useRef(note.id)
   const autosaveDelayRef = useRef(autosaveDelay)
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const noteScrollPositionsRef = useRef(noteScrollPositions)
+  const searchQueryRef = useRef(searchQuery)
+  const pendingSearchMatchRef = useRef(pendingSearchMatch)
 
   useEffect(() => {
     autosaveDelayRef.current = autosaveDelay
@@ -236,13 +240,49 @@ export default function Editor({ note }: EditorProps) {
   ])
 
   useEffect(() => {
+    noteScrollPositionsRef.current = noteScrollPositions
+  }, [noteScrollPositions])
+
+  useEffect(() => { searchQueryRef.current = searchQuery }, [searchQuery])
+  useEffect(() => { pendingSearchMatchRef.current = pendingSearchMatch }, [pendingSearchMatch])
+
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const restoreScroll = () => {
+      // 검색 중이거나 검색 위치 이동 예정이면 복원 건너뜀
+      if (searchQueryRef.current.trim() || pendingSearchMatchRef.current) return
+      container.scrollTop = noteScrollPositionsRef.current[note.id] ?? 0
+    }
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(restoreScroll)
+    })
+  }, [note.id])
+
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const handleScroll = () => {
+      setNoteScrollPosition(note.id, container.scrollTop)
+    }
+
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      container.removeEventListener('scroll', handleScroll)
+    }
+  }, [note.id, setNoteScrollPosition])
+
+  useEffect(() => {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current)
     }
   }, [])
 
   return (
-    <div className="h-full overflow-y-auto" style={{ fontSize: `${fontSize}px` }}>
+    <div ref={scrollContainerRef} className="h-full overflow-y-auto" style={{ fontSize: `${fontSize}px` }}>
       <EditorContent editor={editor} className="h-full" />
     </div>
   )
