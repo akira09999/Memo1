@@ -38,19 +38,12 @@ jobs:
       - name: Generate macOS icon
         run: npm run gen:icon:mac
 
-      - name: Build macOS package
-        run: npm run package:mac
+      - name: Build macOS installer
+        run: npm run gen:icon:mac && npm run build && npx electron-builder --mac pkg
 
-      - name: Upload DMG artifact
+      - name: Upload PKG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: memo-app-macos-dmg
-          path: memo-app/release/*.dmg
-          if-no-files-found: error
-
-      - name: Upload ZIP artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: memo-app-macos-zip
-          path: memo-app/release/*.zip
+          name: memo-app-macos-installer
+          path: memo-app/release/*.pkg
           if-no-files-found: error
