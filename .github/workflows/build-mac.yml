@@ -39,11 +39,11 @@ jobs:
         run: npm run gen:icon:mac
 
       - name: Build macOS installer
-        run: npm run gen:icon:mac && npm run build && npx electron-builder --mac pkg
+        run: npm run gen:icon:mac && npm run build && npx electron-builder --mac dmg
 
-      - name: Upload PKG artifact
+      - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
           name: memo-app-macos-installer
-          path: memo-app/release/*.pkg
+          path: memo-app/release/*.dmg
           if-no-files-found: error
