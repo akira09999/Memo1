@@ -1,0 +1,10 @@
+memo-app/node_modules/
+memo-app/out/
+memo-app/dist/
+memo-app/release/
+memo-app/*.db
+memo-app/*.db-wal
+memo-app/*.db-shm
+*.log
+.DS_Store
+Thumbs.db
