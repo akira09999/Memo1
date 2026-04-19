@@ -50,7 +50,7 @@ export default function NoteList() {
     }
     const diff = now.getTime() - d.getTime()
     if (diff < 1000 * 60 * 60 * 24 * 7) {
-      return d.toLocaleDateString(locale, { weekday: 'short' })
+      return d.toLocaleDateString(locale, { weekday: 'short', month: 'numeric', day: 'numeric' })
     }
     return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
   }, [locale])
